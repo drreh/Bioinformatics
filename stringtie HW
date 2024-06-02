@@ -1,0 +1,74 @@
+##create new directory (HW6)
+mkdir -p ~/workdir/HW6
+
+
+##1) Align the RNAseq reads of HBR_Rep1_ERCC-Mix2 to the reference fasta file using bowtie2. In the tutorial, we enforced the aligner to discard unaligned records and report 20 alignments for reads with multiple alignment. This time you need to change the parameters to keep unaligned records and report the best alignment for reads with multiple alignments. Make sure to choose the option with choose the best alignment while producing meaningful MAPG score. Save the output to "chr22RNAseq_bow.sam" in a new folder "~/workdir/HW6"
+
+##Index reference 
+source ~/miniconda3/bin/activate
+conda activate ngs1
+
+mkdir -p ~/workdir/HW6/index  && cd ~/workdir/HW6 
+
+# Build Index
+bowtie2-build ~/workdir/sample_data/chr22_with_ERCC92.fa index/chr22_with_ERCC92.fa
+
+# Run Alignment
+
+R1="$HOME/workdir/sample_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read1.fastq.gz"
+R2="$HOME/workdir/sample_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read2.fastq.gz"
+
+bowtie2 -p 1 -q -x index/chr22_with_ERCC92.fa -1 $R1 -2 $R2 2> align_stats.txt -S chr22RNAseq_bow.sam
+ 
+118571 reads; of these:
+  118571 (100.00%) were paired; of these:
+    12690 (10.70%) aligned concordantly 0 times
+    105804 (89.23%) aligned concordantly exactly 1 time
+    77 (0.06%) aligned concordantly >1 times
+    ----
+    12690 pairs aligned concordantly 0 times; of these:
+      1915 (15.09%) aligned discordantly 1 time
+    ----
+    10775 pairs aligned 0 times concordantly or discordantly; of these:
+      21550 mates make up the pairs; of these:
+        13829 (64.17%) aligned 0 times
+        7702 (35.74%) aligned exactly 1 time
+        19 (0.09%) aligned >1 times
+94.17% overall alignment rate
+
+# Convert BAM file to SAM file
+samtools view -h -o chr22RNAseq_bow.sam bowtie2.bam
+
+###2) Create a historgram table file "mapq.hist" for the mapping quality of the SAM file. The file has 2 columns: one for the values of MAPG and the 2nd for the count of records having such MAPQ value. (Save the file in the same folder)
+
+awk '{print $5}' chr22RNAseq_bow.sam> mapq.txt
+
+nano mapq_hist.sh
+#!/bin/bash
+
+# Path to the SAM file
+SAM_FILE="/home/bioinformatics/workdir/HW6/chr22RNAseq_bow.sam"
+
+# Path to the output histogram file
+HIST_FILE="/home/bioinformatics/workdir/HW6/mapq.hist"
+
+# Generate the MAPQ histogram
+awk '($1 !~ /^@/) {print $5}' "$SAM_FILE" | sort -n | uniq -c | awk '{print $1, "\t", $2}' >> "$HIST_FILE"
+
+echo "MAPQ histogram saved to $HIST_FILE"
+chmod +x mapq_hist.sh
+./mapq_hist.sh
+
+###3) Re-align the reads with MAPQ < 42 to same reference using a splice aware aligner (The alignment should be done in an annotation independent mode i.e. you can NOT use any data from reference annotation files). Save the output sam file as "chr22RNAseq_unaligned.sam" in the same folder
+
+
+
+
+
+
+
+
+
+
+
+

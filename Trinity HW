@@ -1,0 +1,356 @@
+##Please, write a bash script to answer these question
+##Run the trinity assembly as in:
+## https://github.com/drtamermansour/nu-ngs01/blob/master/Day-4/trinity.md
+
+##1) how many assembly clusters do we have in the assembled transcriptome?
+##2) Report the assembled gene(s) with the highest number of isoforms
+##3) visualize the shortest and longest isoforms in IGV. share a screen image for each
+##4) Re-run your version of the code in ~/workdir/trinity2 and treat the RNA-seq library as a non-strand specific library
+##run TrinityStats.pl on both assemblies then merge the output files in one table that has a column for the features of the assembly and a column for each assembly stats.
+
+
+##Download the sequencing data
+mkdir -p ~/workdir/sample_data && cd ~/workdir/sample_data
+
+if [ ! -f HBR_UHR_ERCC_ds_5pc.tar ];then 
+  wget http://genomedata.org/rnaseq-tutorial/HBR_UHR_ERCC_ds_5pc.tar
+  tar -xvf HBR_UHR_ERCC_ds_5pc.tar
+else
+  echo "the TAR file already exist"
+fi
+
+
+ls
+ls *tar
+ls *fastq.gz
+
+###Install Trinity
+source ~/miniconda3/bin/activate
+conda activate ngs1
+conda install -c bioconda -y trinity
+conda install -c bioconda -y bowtie  ## bowtie is a short read aligner that triniy uses 
+
+###Install Trinity
+source ~/miniconda3/bin/activate
+conda activate ngs1
+###create a new environment and install trinity in that environment. This can sometimes resolve dependency conflicts. 
+conda create -n trinity_env
+conda activate trinity_env
+conda install -c bioconda -y trinity
+
+##Run Trinity
+mkdir -p ~/workdir/trinity && cd ~/workdir/trinity
+R1="$HOME/workdir/sample_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read1.fastq.gz"
+R2="$HOME/workdir/sample_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read2.fastq.gz"
+
+conda install -c bioconda salmon
+
+Trinity --seqType fq --max_memory 2G  \
+        --left $R1 \
+        --right $R2 \
+        --SS_lib_type RF \
+        --CPU 1 \
+        --quality_trimming_params "ILLUMINACLIP:$TRIMMOMATIC_DIR/adapters/TruSeq3-PE.fa:2:30:10 SLIDINGWINDOW:4:5 MINLEN:25"
+        
+        
+        
+#############################################################################
+Finished.  Final Trinity assemblies are written to /home/bioinformatics/workdir/trinity/trinity_out_dir.Trinity.fasta
+#############################################################################
+
+### Explore the assembly
+source ~/miniconda3/bin/activate
+conda activate ngs1
+conda activate trinity_env
+
+TrinityStats.pl /home/bioinformatics/workdir/trinity/trinity_out_dir/Trinity.fasta > /home/bioinformatics/workdir/trinity/trinity_out_dir/stat.txt
+
+################################
+## Counts of transcripts, etc.
+################################
+Total trinity 'genes':	1959
+Total trinity transcripts:	2125
+Percent GC: 54.10
+
+########################################
+Stats based on ALL transcript contigs:
+########################################
+
+	Contig N10: 4285
+	Contig N20: 2946
+	Contig N30: 1837
+	Contig N40: 1289
+	Contig N50: 886
+
+	Median contig length: 342
+	Average contig: 612.62
+	Total assembled bases: 1301809
+
+
+#####################################################
+## Stats based on ONLY LONGEST ISOFORM per 'GENE':
+#####################################################
+
+	Contig N10: 3522
+	Contig N20: 2106
+	Contig N30: 1461
+	Contig N40: 990
+	Contig N50: 693
+
+	Median contig length: 328
+	Average contig: 547.03
+	Total assembled bases: 1071635
+
+
+
+
+
+
+
+
+###Assessment
+### 1. Index Building + Alignment
+conda activate ngs1
+conda install -c bioconda -y bowtie2
+
+mkdir -p ~/workdir/trinity/trinity_out_dir/bowtie2_assessment/index  && cd ~/workdir/trinity/trinity_out_dir/bowtie2_assessment 
+
+# Build Index
+bowtie2-build ~/workdir/trinity/trinity_out_dir/Trinity.fasta index/Trinity.fa
+
+# Run Alignment
+
+R1="$HOME/workdir/sample_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read1.fastq.gz"
+R2="$HOME/workdir/sample_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read2.fastq.gz"
+
+bowtie2 -p 1 -q --no-unal -k 20 -x index/Trinity.fa -1 $R1 -2 $R2 2> align_stats.txt| samtools view -Sb -o bowtie2.bam
+
+# View align_stats.txt
+cat align_stats.txt
+
+# calc the alignments per transcript
+samtools view bowtie2.bam | awk '{print $3}' | sort | uniq -c | sort -nr > alignment_per_transcript.count 
+
+
+##Install igv
+source ~/miniconda3/bin/activate
+conda activate ngs1
+conda install -c bioconda igv
+igv
+
+### 2. Visualize read support using IGV
+
+# Sorting the BAM file
+samtools sort bowtie2.bam -o bowtie2.coordSorted.bam
+
+# Indexing the BAM file
+samtools index bowtie2.coordSorted.bam
+
+# Index Trinity.fasta
+samtools faidx ~/workdir/trinity/trinity_out_dir/Trinity.fasta
+
+# Visualize
+$ igv -g ~/workdir/trinity/trinity_out_dir/Trinity.fasta  bowtie2.coordSorted.bam
+
+
+
+
+
+###Questions
+1) how many assembly clusters do we have in the assembled transcriptome?
+
+nano cluster.sh
+                                                         
+#!/bin/bash
+# Define paths
+TRINITY_OUT_DIR="/home/bioinformatics/workdir/trinity/trinity_out_dir"
+TRINITY_FASTA="/home/bioinformatics/workdir/trinity/trinity_out_dir/Trinity.fasta"
+
+# Output directory for clustering
+CLUSTER_OUT_DIR="$TRINITY_OUT_DIR/clustering"
+mkdir -p "$CLUSTER_OUT_DIR"
+
+# Count the number of assembly clusters based on Trinity headers
+NUM_CLUSTERS=$(grep -c '^>' "$TRINITY_FASTA")
+
+echo "Number of assembly clusters: $NUM_CLUSTERS"
+
+chmod +x cluster.sh
+./cluster.sh
+Number of assembly clusters: 2125
+
+
+2) Report the assembled gene(s) with the highest number of isoforms
+nano isoforms.sh
+#!/bin/bash
+
+# Define paths
+TRINITY_OUT_DIR="/home/bioinformatics/workdir/trinity/trinity_out_dir"
+TRINITY_FASTA="$TRINITY_OUT_DIR/Trinity.fasta"
+
+# Output directory for clustering
+CLUSTER_OUT_DIR="$TRINITY_OUT_DIR/clustering"
+mkdir -p "$CLUSTER_OUT_DIR"
+
+# Extract gene names from Trinity headers and count isoforms per gene
+awk '/^>/ { gene=$1; sub(/^>/, "", gene); gsub(/\|.*$/, "", gene); isoforms[gene]++ } END { for (gene in isoforms) print gene, isof>
+
+# Report gene(s) with the highest number of isoforms
+echo "Gene(s) with the highest number of isoforms:"
+awk '{print $1}' "$CLUSTER_OUT_DIR/gene_isoform_counts.txt" | sort -k2,2nr | head -n 1
+
+chmod +x isoforms.sh
+./isoforms.sh
+
+Gene(s) with the highest number of isoforms:
+TRINITY_DN0_c0_g1_i1
+
+
+3) visualize the shortest and longest isoforms in IGV. share a screen image for each
+nano length.sh
+#!/bin/bash
+
+TRINITY_FASTA="/home/bioinformatics/workdir/trinity/trinity_out_dir/Trinity.fasta"
+# Extract the longest isoform
+seqkit sort --by-length --reverse "$TRINITY_FASTA" | seqkit head -n 1 > longest_isoform.fasta
+
+# Extract the shortest isoform
+seqkit sort --by-length "$TRINITY_FASTA" | seqkit head -n 1 > shortest_isoform.fasta
+
+echo "Extracted longest isoform to longest_isoform.fasta"
+echo "Extracted shortest isoform to shortest_isoform.fasta"
+
+chmod +x length.sh
+./length.sh
+
+# Launch IGV and load isoform sequences
+igv -g $LONGEST_ISOFORM $SHORTEST_ISOFORM
+
+
+##Question 4
+source ~/miniconda3/bin/activate
+conda activate ngs1
+conda activate trinity_env
+
+mkdir -p ~/workdir/trinity2 && cd ~/workdir/trinity2
+R1="$HOME/workdir/sample_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read1.fastq.gz"
+R2="$HOME/workdir/sample_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read2.fastq.gz"
+Trinity --seqType fq \
+        --max_memory 2G \
+        --left $R1 \
+        --right $R2 \
+        --CPU 1 \
+        --quality_trimming_params "ILLUMINACLIP:$TRIMMOMATIC_DIR/adapters/TruSeq3-PE.fa:2:30:10 SLIDINGWINDOW:4:5 MINLEN:25"
+        
+
+TrinityStats.pl /home/bioinformatics/workdir/trinity2/trinity_out_dir/Trinity2.fasta > /home/bioinformatics/workdir/trinity2/trinity_out_dir/stat2.txt
+        
+################################
+## Counts of transcripts, etc.
+################################
+Total trinity 'genes':	1984
+Total trinity transcripts:	2114
+Percent GC: 54.24
+
+########################################
+Stats based on ALL transcript contigs:
+########################################
+
+	Contig N10: 3685
+	Contig N20: 2497
+	Contig N30: 1658
+	Contig N40: 1176
+	Contig N50: 819
+
+	Median contig length: 341
+	Average contig: 593.31
+	Total assembled bases: 1254255
+
+
+#####################################################
+## Stats based on ONLY LONGEST ISOFORM per 'GENE':
+#####################################################
+
+	Contig N10: 3522
+	Contig N20: 2106
+	Contig N30: 1456
+	Contig N40: 978
+	Contig N50: 690
+
+	Median contig length: 331
+	Average contig: 548.07
+	Total assembled bases: 1087375
+
+
+## To merge stat of 2 assembly
+
+nano merge.sh
+#!/bin/bash
+# Assign arguments to variables
+assembly1_stats_path=$1
+assembly2_stats_path=$2
+merged_output_path=$3
+
+# Read assembly 1 stats into an array
+readarray -t assembly1 < "$assembly1_stats_path"
+
+# Read assembly 2 stats into an array
+readarray -t assembly2 < "$assembly2_stats_path"
+
+# Initialize the merged file
+echo -e "Statistic\t\t\tAssembly 1\t\tAssembly 2" > "$merged_output_path"
+echo -e "#######################################################################" >> "$merged_output_path"
+
+# Extract and merge statistics line by line
+for ((i=0; i<${#assembly1[@]}; i++)); do
+  # Skip empty lines and headers
+  if [[ ${assembly1[$i]} == *"##"* || -z ${assembly1[$i]} ]]; then
+    continue
+  fi
+  
+  # Extract the statistic name and value
+  stat_name=$(echo ${assembly1[$i]} | cut -d':' -f 1)
+  stat_value1=$(echo ${assembly1[$i]} | cut -d':' -f 2-)
+  stat_value2=$(echo ${assembly2[$i]} | cut -d':' -f 2-)
+
+  # Append the merged line to the file
+  printf "%-30s\t%-30s\t%-30s\n" "$stat_name:" "$stat_value1" "$stat_value2" >> "$merged_output_path"
+done
+
+chmod +x merge.sh
+
+./merge.sh /home/bioinformatics/workdir/trinity/trinity_out_dir/stat.txt /home/bioinformatics/workdir/trinity2/trinity_out_dir/stat2.txt /home/bioinformatics/workdir/Merged/merged_assembly_stats.txt
+
+Statistic			Assembly 1		Assembly 2
+#######################################################################
+Total trinity 'genes':        	 1959                         	 1984                         
+Total trinity transcripts:    	 2125                         	 2114                         
+Percent GC:                   	 54.10                        	 54.24                        
+Stats based on ALL transcript contigs:	                              	                              
+Contig N10:                   	 4285                         	 3685                         
+Contig N20:                   	 2946                         	 2497                         
+Contig N30:                   	 1837                         	 1658                         
+Contig N40:                   	 1289                         	 1176                         
+Contig N50:                   	 886                          	 819                          
+Median contig length:         	 342                          	 341                          
+Average contig:               	 612.62                       	 593.31                       
+Total assembled bases:        	 1301809                      	 1254255                      
+Contig N10:                   	 3522                         	 3522                         
+Contig N20:                   	 2106                         	 2106                         
+Contig N30:                   	 1461                         	 1456                         
+Contig N40:                   	 990                          	 978                          
+Contig N50:                   	 693                          	 690                          
+Median contig length:         	 328                          	 331                          
+Average contig:               	 547.03                       	 548.07                       
+Total assembled bases:        	 1071635                      	 1087375 
+
+
+
+
+
+
+
+
+
+
+
